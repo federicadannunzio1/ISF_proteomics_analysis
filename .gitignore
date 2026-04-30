@@ -1,0 +1,47 @@
+# 1. Ignore everything by default
+*
+
+# 2. Whitelist: Allow specific files and scripts
+!.gitignore
+!README.md
+!**/
+!**/*.R
+!**/*.Rmd
+
+# 3. Explicitly ignore Office, Data, and System files
+# (Even if they are inside folders containing R scripts)
+
+# Office documents
+*.pptx
+*.ppt
+*.xlsx
+*.xls
+*.docx
+*.doc
+~$*
+.~lock.*
+
+# Data & Large Files
+*.csv
+*.tsv
+*.rds
+*.RData
+*.rda
+*.gz
+*.zip
+*.tar
+*.7z
+*.pdf
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.tiff
+*.svg
+
+# System & R cache
+.DS_Store
+.Rhistory
+.Rproj.user/
+__MACOSX/
