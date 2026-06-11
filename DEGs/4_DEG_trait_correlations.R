@@ -260,3 +260,110 @@ rebuild_corrplot(res_SE_ctrl, extra_SE_ctrl,
                  file.path(out_SE, "corrplot_control_extended.pdf"), soglia_pval)
 
 message("Done.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Combined figure: IF (top) | SERUM (bottom), T2D | Control side by side
+# Same clinical-trait order on x-axis; proteins labelled on y-axis
+# ─────────────────────────────────────────────────────────────────────────────
+library(ggplot2)
+library(patchwork)
+
+# Unified x-axis: traits significant in at least one group across IF + SERUM
+# (same logic as the "extended" corrplots, but spanning all 4 groups)
+sig_traits_all <- sort(unique(c(
+  colnames(res_IF_T2D$rho_sel),  colnames(res_IF_ctrl$rho_sel),
+  colnames(res_SE_T2D$rho_sel),  colnames(res_SE_ctrl$rho_sel)
+)))
+
+if (length(sig_traits_all) == 0) {
+  warning("No significant traits in any group — falling back to all traits for combined figure.")
+  sig_traits_all <- sort(unique(c(
+    colnames(res_IF_T2D$rho), colnames(res_IF_ctrl$rho),
+    colnames(res_SE_T2D$rho), colnames(res_SE_ctrl$rho)
+  )))
+}
+
+# Protein orders per fluid (alphabetical; union in case T2D/ctrl differ due to NA filter)
+prot_order_IF <- sort(unique(c(rownames(res_IF_T2D$rho), rownames(res_IF_ctrl$rho))))
+prot_order_SE <- sort(unique(c(rownames(res_SE_T2D$rho), rownames(res_SE_ctrl$rho))))
+
+# Color palette matching get_corrplot (reversed Blues -> white -> Reds)
+pal_colors <- colorRampPalette(
+  c(rev(brewer.pal(9, "Blues")), "white", brewer.pal(9, "Reds"))
+)(200)
+low_col  <- pal_colors[1]
+high_col <- pal_colors[200]
+
+# Helper: build one ggplot tile panel
+# rho, pval: full matrices from res$rho / res$pval (proteins x traits)
+make_gg_tile <- function(rho, pval, title, soglia_pval, trait_order, prot_order) {
+
+  # Expand to unified trait_order and prot_order (fill absent entries with NA / p=1)
+  rho_exp  <- matrix(NA_real_, nrow = length(prot_order), ncol = length(trait_order),
+                     dimnames = list(prot_order, trait_order))
+  pval_exp <- matrix(1,        nrow = length(prot_order), ncol = length(trait_order),
+                     dimnames = list(prot_order, trait_order))
+
+  shared_prot  <- intersect(prot_order,  rownames(rho))
+  shared_trait <- intersect(trait_order, colnames(rho))
+  rho_exp[ shared_prot, shared_trait] <- rho[ shared_prot, shared_trait]
+  pval_exp[shared_prot, shared_trait] <- pval[shared_prot, shared_trait]
+
+  # Mask non-significant cells (show as NA = white tile)
+  rho_plot <- rho_exp
+  rho_plot[pval_exp > soglia_pval] <- NA
+
+  # Long format using base R
+  df <- data.frame(
+    protein = rep(prot_order, times = length(trait_order)),
+    trait   = rep(trait_order, each  = length(prot_order)),
+    rho     = as.vector(rho_plot),
+    stringsAsFactors = FALSE
+  )
+  # Reverse protein factor so alphabetical order reads top-to-bottom on y-axis
+  df$protein <- factor(df$protein, levels = rev(prot_order))
+  df$trait   <- factor(df$trait,   levels = trait_order)
+
+  ggplot(df, aes(x = trait, y = protein, fill = rho)) +
+    geom_tile(color = "grey80", linewidth = 0.3) +
+    scale_fill_gradientn(
+      colors   = pal_colors,
+      limits   = c(-1, 1),
+      na.value = "white",
+      name     = "r",
+      guide    = guide_colorbar(barheight = 8, barwidth = 0.8)
+    ) +
+    labs(title = title, x = NULL, y = NULL) +
+    theme_bw(base_size = 9) +
+    theme(
+      axis.text.x  = element_text(angle = 45, hjust = 1, size = 7),
+      axis.text.y  = element_text(size = 7),
+      plot.title   = element_text(size = 10, face = "bold"),
+      panel.grid   = element_blank()
+    )
+}
+
+# Build 4 panels
+p_IF_T2D  <- make_gg_tile(res_IF_T2D$rho,  res_IF_T2D$pval,  "IF - T2D",
+                           soglia_pval, sig_traits_all, prot_order_IF)
+p_IF_ctrl <- make_gg_tile(res_IF_ctrl$rho,  res_IF_ctrl$pval, "IF - Control",
+                           soglia_pval, sig_traits_all, prot_order_IF)
+p_SE_T2D  <- make_gg_tile(res_SE_T2D$rho,  res_SE_T2D$pval,  "SERUM - T2D",
+                           soglia_pval, sig_traits_all, prot_order_SE)
+p_SE_ctrl <- make_gg_tile(res_SE_ctrl$rho,  res_SE_ctrl$pval, "SERUM - Control",
+                           soglia_pval, sig_traits_all, prot_order_SE)
+
+# Assemble: top row = IF, bottom row = SERUM; legend shared
+fig_combined <-
+  (p_IF_T2D | p_IF_ctrl) /
+  (p_SE_T2D | p_SE_ctrl) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+
+out_combined <- file.path(base_path, "code/DEGs/res")
+ggsave(file.path(out_combined, "combined_corrplot.pdf"),
+       plot = fig_combined, width = 14, height = 10)
+ggsave(file.path(out_combined, "combined_corrplot.png"),
+       plot = fig_combined, width = 14, height = 10, dpi = 300)
+
+message("Combined figure saved in: ", out_combined)
